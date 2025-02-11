@@ -12,11 +12,24 @@ class Screener:
         self.stockData = StockData(cache_dir=data_dir, symbols=symbols)
         self.cutoff_date = None
 
-    def refreshData(self):
-        print("Refreshing daily data...")
-        self.stockData.refresh_all("1d")
-        print("Refreshing intraday data...")
-        self.stockData.refresh_all("1min")
+    def refreshData(self, timeframes=[]):
+        TIMEFRAME_ORDER = {
+            "1min": 1,
+            "5min": 5,
+            "15min": 15,
+            "30min": 30,
+            "1h": 60,
+            "1d": 1440,
+            "1wk": 10080,
+            "1mo": 43200
+        }
+
+        if "1min" in timeframes or "5min" in timeframes or "15min" in timeframes or "30min" in timeframes or "1h" in timeframes:
+            print("Refreshing intraday data...")
+            self.stockData.refresh_all("1min")
+        if "1h" in timeframes or "1d" in timeframes or "1wk" in timeframes or "1mo" in timeframes:
+            print("Refreshing daily data...")
+            self.stockData.refresh_all("1d")
         # Optionally, add sleep if needed.
         # time.sleep(1)
 

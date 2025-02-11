@@ -9,6 +9,7 @@ __pycache__/
 
 data/
 cache/
+config_data/
 
 # Distribution / packaging
 .Python

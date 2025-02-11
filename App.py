@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         # self.on_bottom_tab_changed(bottom_tab_index)
         topTab = self.getCurrentTopTab()
         if topTab == TAB_ALL:
-            self.dashboards[TAB_ALL] = Dashboard()
+            self.dashboards[TAB_ALL] = Dashboard(self.data_dir)
             self.refreshAll(False)
 
         self.refreshButtons()
@@ -170,19 +170,25 @@ class MainWindow(QMainWindow):
 
     def refreshAll(self, refreshReddit=False, refreshStock=False):
         currentTab = self.getCurrentTopTab()
-        thread = threading.Thread(target=self._refreshAll, args=(refreshReddit,refreshStock,currentTab,))
-        thread.start()
+        #thread = threading.Thread(target=self._refreshAll, args=(refreshReddit, refreshStock, currentTab, ))
+        #thread.start()
+        self._refreshAll(refreshReddit, refreshStock, currentTab)
 
     def _refreshAll(self, refreshReddit=False, refreshStock=False, merge_type="all"):
         print("_refreshAll", refreshReddit, refreshStock)
         self.dashboards[TAB_ALL].refreshAll(refreshReddit, refreshStock, 50, merge_type)
         df = self.dashboards[TAB_ALL].data["symbol_table"].copy()
         df["Ticker"] = df.index
-        columns = ["Ticker", "Name", "Reddit Rank", "Reddit Rank Change", "Reddit Mentions", "Reddit Mentions Change", "Reddit Upvotes", "News", "News (Positive)", "News (Negative)", "prev_day", "day", "prev_week", "week", "prev_month", "month"]
+        columns = ["Ticker", "name", "rank", "rank change", "mentions", "mentions change", "upvotes", "News", "News (Positive)", "News (Negative)", "prev_day", "day", "prev_week", "week", "prev_month", "month"]
         gradients = {
-            "Reddit Rank Change": (-10, 0, 10),
-            "Reddit Mentions": (-1, 0, 250),
-            "Reddit Upvotes": (-1, 0, 2000),
+            "rank": (-1, 0, len(df.index)/3),
+            "rank change": (-100, 0, 100),
+            "mentions": (-1, 0, 250),
+            "mentions change": (-100, 0, 100),
+            "News": (-1, 0, 100),
+            "News (Positive)": (-1, 0, 100),
+            "News (Negative)": (-1, 0, 100),
+            "upvotes": (-1, 0, 2000),
             "prev_day": (0, 50, 100),
             "day": (0, 50, 100),
             "prev_week": (0, 50, 100),

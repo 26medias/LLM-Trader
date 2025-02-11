@@ -8,10 +8,10 @@ import json
 POLYGON_API_KEY = os.environ['POLYGON_API_KEY']
 
 # (Optional) For daily data, download from this date
-DAILY_START_DATE = "2022-01-01"
+DAILY_START_DATE = "2023-01-01"
 
 # (Optional) For intraday data, download only the last N days (Polygon’s minute‐data can be huge)
-INTRADAY_DAYS = 30
+INTRADAY_DAYS = 3
 
 # Allowed intervals (you can expand these lists)
 INTRADAY_INTERVALS = {"1min", "5min", "15min", "30min", "1h"}

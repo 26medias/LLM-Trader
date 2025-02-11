@@ -2,14 +2,15 @@ from RedditTracker import *
 from NewsLoader import NewsLoader
 from Screener import Screener
 
+import threading
 import pandas as pd
 import math
 import json
 import os
 
 class Dashboard:
-    def __init__(self):
-        self.data_dir = "data/test"
+    def __init__(self, data_dir="./data"):
+        self.data_dir = data_dir
         self.reddit = RedditTracker(self.data_dir)
         self.news = NewsLoader()
         
@@ -39,47 +40,113 @@ class Dashboard:
             print(f"Error writing to file {filename}: {e}")
             return False
     
+    # Function stack / parallel execution
+    def stack(fn_list, onCompleted):
+        """
+        Execute all functions in fn_list in parallel, then call onCompleted() when all are finished.
+        """
+        threads = []
+        for fn in fn_list:
+            thread = threading.Thread(target=fn)
+            thread.start()
+            threads.append(thread)
+        
+        for thread in threads:
+            thread.join()
+        
+        onCompleted()
+    
     def refreshAll(self, refreshReddit=True, refreshStocks=True, count=50, merge_type="Trending"):
         print(refreshReddit, refreshStocks)
         self.data = {
             "news": None,   # dict, symbol-index
+            "news_table": None,   # dict, symbol-index
             "news_raw": None, # array of dict
-            "reddit": None, # dict, symbol-index
+            "reddit_table": None, # df, table of reddit data
             "marketCycles": None,
             "symbol_table": None # df [Ticker  News  Rank  Rank Change  Mentions  Mentions Change  Upvotes]
         }
+        
         self.refreshNews()
         self.refreshReddit(refreshReddit)
-        self.mergeData(refreshStocks, count)
         
+        # Filter reddit by rank
+        reddit_table = self.data["reddit_table"].sort_values(by=['rank'], ascending=True)
+
+        # Limit
+        reddit_table = reddit_table.head(count)
+
+        # Get symbols
+        symbols = list(reddit_table.index)
+
+        print("\n\n=== SYMBOLS ===")
+        print(symbols)
+
+        # Get the stock data for those
+        self.refreshStockData(symbols, refreshStocks, merge_type)
+
+        # Merge
+        table = self.data["reddit_table"].merge(self.data["news_table"], on="ticker", how="outer").merge(self.data["marketCycles"], on="ticker", how="outer")
+        
+
+        # Filter out what we don't need
+        table = table[(table["rank"] > 0)] # | (table["News"] > 0)
+
+        table = table.sort_values(by=['rank'], ascending=True)
+
+        print("\n\n=== TABLE ===")
+        print(table)
+
+        self.data["symbol_table"] = table
+        
+        #self.mergeData(refreshStocks, count)
 
         #self.write(f"{self.data_dir}/data.json", self.data)
     
-    def refreshStockData(self, symbols, refreshData=True):
-        print("refreshStockData()", refreshData)
-        self.screener = Screener(self.data_dir, symbols=symbols)
-        if refreshData:
-            self.screener.refreshData()
 
-        if "marketCycles_raw" not in self.data or refreshData:
-            self.data["marketCycles_raw"] = self.screener.build(timeframes=["1d", "1wk", "1mo"])
+    # Refresh the stock data for given symbols
+    def refreshStockData(self, symbols, refreshData=True, cache_name=""):
+        print("refreshStockData()", symbols, refreshData)
+        timeframes = ["1d", "1wk", "1mo"]
+
+        cache_filename = f"{self.data_dir}/marketcycles_{cache_name}.csv"
+        if not os.path.exists(cache_filename) or refreshData:
+            # Refresh the data
+            print("-- Refreshing the stock data --")
+            self.screener = Screener(self.data_dir, symbols=symbols)
+            self.screener.refreshData(timeframes=timeframes)
+            raw_data = self.screener.build(timeframes=timeframes)
+            
+            timeframes = ["", "_week", "_month"]
+            timeframe_labels = ["day", "week", "month"]
+            keeps = []
+            rename = {}
+            for n, timeframe in enumerate(timeframes):
+                keeps.append(f"Prev_MarketCycle{timeframe}")
+                keeps.append(f"MarketCycle{timeframe}")
+                rename[f"Prev_MarketCycle{timeframe}"] = f"prev_{timeframe_labels[n]}"
+                rename[f"MarketCycle{timeframe}"] = f"{timeframe_labels[n]}"
+
+            self.data["marketCycles"] = raw_data[keeps].rename(columns=rename)
+            self.data["marketCycles"]["ticker"] = self.data["marketCycles"].index
+            # Save with the ticker column
+            self.data["marketCycles"].to_csv(cache_filename, index=False)
+            # Convert to index
+            #self.data["marketCycles"].set_index("ticker")
+            self.data["marketCycles"].rename_axis('ticker')
+
+        else:
+            print("-- Loading the stock data from file --")
+        self.data["marketCycles"] = pd.read_csv(cache_filename)
+        # Set the index again
+        self.data["marketCycles"] = self.data["marketCycles"].set_index("ticker")
         
-        data = self.data["marketCycles_raw"]
-        timeframes = ["", "_week", "_month"]
-        timeframe_labels = ["day", "week", "month"]
-        keeps = []
-        rename = {}
-        for n, timeframe in enumerate(timeframes):
-            keeps.append(f"Prev_MarketCycle{timeframe}")
-            keeps.append(f"MarketCycle{timeframe}")
-            rename[f"Prev_MarketCycle{timeframe}"] = f"prev_{timeframe_labels[n]}"
-            rename[f"MarketCycle{timeframe}"] = f"{timeframe_labels[n]}"
-
-        self.data["marketCycles"] = data[keeps].rename(columns=rename)#.to_dict(orient="index")
-        #print(self.data["marketCycles"])
+        print("\n\n=== STOCKS ===")
+        print(self.data["marketCycles"])
 
 
     # Refresh & reformat the news
+    # SAve the table and indexed lists
     def refreshNews(self):
         newsList = self.news.load_news(days=7, limit=1000)
         self.data["news_raw"] = newsList
@@ -95,17 +162,47 @@ class Dashboard:
                     "sentiment": insight["sentiment"],
                     "reasoning": insight["sentiment_reasoning"],
                 })
+        news_array = []
+        for symbol in self.data["news"]:
+            newsCount = len(self.data["news"][symbol])
+            positiveNewsCount = sum(1 for item in self.data["news"][symbol] if item.get("sentiment") == "positive")
+            negativeNewsCount = sum(1 for item in self.data["news"][symbol] if item.get("sentiment") == "negative")
+            news_array.append({
+                "ticker": symbol,
+                "News": newsCount,
+                "News (Positive)": int(positiveNewsCount/newsCount*100),
+                "News (Negative)": int(negativeNewsCount/newsCount*100),
+            })
+        news_df = pd.DataFrame(news_array)
+        
+        self.data["news_table"] = news_df
+        # Ticker as index
+        self.data["news_table"]["Ticker"] = self.data["news_table"]["ticker"]
+        self.data["news_table"] = self.data["news_table"].set_index("ticker")
+        self.data["news_table"] = self.data["news_table"].drop(columns=["Ticker"])
+        
+        print("\n\n=== NEWS ===")
+        print(self.data["news_table"])
     
-    # Refresh & reformat Reddit stats
+
+    # Refresh Reddit stats, save the table
     def refreshReddit(self, refreshData=True):
         print("refreshReddit()", refreshData)
         if refreshData:
-            self.reddit.refresh(pages=3)
-        self.data["reddit"] = {}
-        redditData = self.reddit.all(as_dict=True)
-        for item in redditData:
-            self.data["reddit"][item["ticker"]] = item
+            self.reddit.refresh(pages=10)
+        self.data["reddit_table"] = self.reddit.all(as_dict=False)
+        # Ticker as index
+        self.data["reddit_table"]["Ticker"] = self.data["reddit_table"]["ticker"]
+        self.data["reddit_table"] = self.data["reddit_table"].set_index("ticker")
+        # Extra columns
+        self.data["reddit_table"]["rank change"] = self.data["reddit_table"]["rank"] - self.data["reddit_table"]["rank_24h_ago"]
+        self.data["reddit_table"]["mentions change"] = self.data["reddit_table"]["mentions"] - self.data["reddit_table"]["mentions_24h_ago"]
         
+        self.data["reddit_table"] = self.data["reddit_table"].drop(columns=["Ticker"])
+        
+        print("\n\n=== REDDIT ===")
+        print(self.data["reddit_table"])
+
     
     # Refresh the Symbol Table
     def mergeData(self, refreshData=True, top=50, merge_type="Trending"):
@@ -148,6 +245,7 @@ class Dashboard:
         # Re-index on ticker
         self.data["symbol_table"] = self.data["symbol_table"].set_index("Ticker")
 
+        # Stock Data
         # Fetch the stock data for the tickers in the table
         self.refreshStockData(list(self.data["symbol_table"].index), refreshData)
         self.data["symbol_table"] = self.data["symbol_table"].join(self.data["marketCycles"], how="outer")
