@@ -39,7 +39,7 @@ class Dashboard:
             print(f"Error writing to file {filename}: {e}")
             return False
     
-    def refreshAll(self, refreshReddit=True, refreshStocks=True, count=50):
+    def refreshAll(self, refreshReddit=True, refreshStocks=True, count=50, merge_type="Trending"):
         print(refreshReddit, refreshStocks)
         self.data = {
             "news": None,   # dict, symbol-index
@@ -108,7 +108,8 @@ class Dashboard:
         
     
     # Refresh the Symbol Table
-    def mergeData(self, refreshData=True, top=50):
+    def mergeData(self, refreshData=True, top=50, merge_type="Trending"):
+        print("mergeData()", refreshData, merge_type)
         self.data["symbol_table"] = None
         table = []
 
@@ -131,18 +132,21 @@ class Dashboard:
                 "News (Negative)": str(int(negativeNewsCount/newsCount*100))+"%",
             })
         self.data["symbol_table"] = pd.DataFrame(table)
-        self.data["symbol_table"] = self.data["symbol_table"].sort_values(by=['Reddit Rank'], ascending=True)
-        self.data["symbol_table"] = self.data["symbol_table"][self.data["symbol_table"]["Reddit Rank"] > 0]
+        if merge_type == "Trending":
+            self.data["symbol_table"] = self.data["symbol_table"][self.data["symbol_table"]["Reddit Rank"] > 0]
+            self.data["symbol_table"] = self.data["symbol_table"].sort_values(by=['Reddit Rank'], ascending=True)
         print(self.data["symbol_table"])
 
         # Filter the table
         #self.data["symbol_table"] = self.data["symbol_table"][(self.data["symbol_table"]["News"] > 1) & (self.data["symbol_table"]["Reddit Mentions"] > 1)]
         #self.data["symbol_table"] = self.data["symbol_table"][self.data["symbol_table"]["Reddit Mentions"] > 1]
 
+        # Limit
         if top is not None:
             self.data["symbol_table"] = self.data["symbol_table"].head(top)
+
+        # Re-index on ticker
         self.data["symbol_table"] = self.data["symbol_table"].set_index("Ticker")
-        #print(self.data["symbol_table"])
 
         # Fetch the stock data for the tickers in the table
         self.refreshStockData(list(self.data["symbol_table"].index), refreshData)

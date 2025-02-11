@@ -41,6 +41,12 @@ class WatchlistManager:
         with open(self.watchlist_path, "r", encoding="utf-8") as f:
             return [line.strip() for line in f if line.strip()]
 
+    def contains(self, ticker: str) -> bool:
+        """
+        Check if a ticker is in the watchlist.
+        """
+        return ticker.upper() in [t.upper() for t in self.list()]
+
 if __name__ == "__main__":
     manager = WatchlistManager("data")
 
@@ -53,3 +59,7 @@ if __name__ == "__main__":
 
     # Display the current watchlist
     print("Current watchlist:", manager.list())
+    
+    # Check if a ticker is in the watchlist
+    print("Contains TSLA:", manager.contains("TSLA"))
+    print("Contains GOOGL:", manager.contains("GOOGL"))

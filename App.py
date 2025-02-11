@@ -46,7 +46,7 @@ class MainWindow(QMainWindow):
         os.makedirs(self.data_dir, exist_ok=True)
         self.config_path = self.data_dir / "config.json"
 
-        self.watchlist = WatchlistManager()
+        self.watchlist = WatchlistManager(data_dir)
 
         # Dashboard states
         self.dashboards = {
@@ -169,12 +169,13 @@ class MainWindow(QMainWindow):
         print(f"UI loaded - Active Top Tab: {top_tab_name}, Active Bottom Tab: {bottom_tab_name}")
 
     def refreshAll(self, refreshReddit=False, refreshStock=False):
-        thread = threading.Thread(target=self._refreshAll, args=(refreshReddit,refreshStock,))
+        currentTab = self.getCurrentTopTab()
+        thread = threading.Thread(target=self._refreshAll, args=(refreshReddit,refreshStock,currentTab,))
         thread.start()
 
-    def _refreshAll(self, refreshReddit=False, refreshStock=False):
+    def _refreshAll(self, refreshReddit=False, refreshStock=False, merge_type="all"):
         print("_refreshAll", refreshReddit, refreshStock)
-        self.dashboards[TAB_ALL].refreshAll(refreshReddit, refreshStock, 50)
+        self.dashboards[TAB_ALL].refreshAll(refreshReddit, refreshStock, 50, merge_type)
         df = self.dashboards[TAB_ALL].data["symbol_table"].copy()
         df["Ticker"] = df.index
         columns = ["Ticker", "Name", "Reddit Rank", "Reddit Rank Change", "Reddit Mentions", "Reddit Mentions Change", "Reddit Upvotes", "News", "News (Positive)", "News (Negative)", "prev_day", "day", "prev_week", "week", "prev_month", "month"]
@@ -195,6 +196,15 @@ class MainWindow(QMainWindow):
             gradients=gradients,
             onClick=self.on_table_row_click
         )
+
+
+    def watchlistAdd(self, ticker):
+        self.watchlist.add(ticker)
+        self.refreshButtons()
+
+    def watchlistRemove(self, ticker):
+        self.watchlist.remove(ticker)
+        self.refreshButtons()
 
     def refreshButtons(self):
         def onButtonClick():
@@ -230,11 +240,18 @@ class MainWindow(QMainWindow):
                 "icon": "./icons/watchlist.png",
                 "onClick": onButtonClick
             })
-            buttons.append({
-                "label": f"Add {self.selectedTicker} to watchlist",
-                "icon": "./icons/watchlist.png",
-                "onClick": onButtonClick
-            })
+            if self.watchlist.contains(self.selectedTicker):
+                buttons.append({
+                    "label": f"Remove {self.selectedTicker} from watchlist",
+                    "icon": "./icons/watchlist.png",
+                    "onClick": lambda: self.watchlistRemove(self.selectedTicker)
+                })
+            else:
+                buttons.append({
+                    "label": f"Add {self.selectedTicker} to watchlist",
+                    "icon": "./icons/watchlist.png",
+                    "onClick": lambda: self.watchlistAdd(self.selectedTicker)
+                })
         self.actions_panel.setButtons(buttons)
 
     def read_settings(self):
