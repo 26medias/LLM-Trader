@@ -158,3 +158,25 @@ Methods
         - refresh()
         - build()
         - getMarketCycles()
+
+
+## UI
+
+Buttons
+- Trending
+    Selected:
+        - [AI: Summary]
+        - [AI: Actions]
+        - [Buy]
+        - [Sell]
+        - [Add to watchlist] -> 
+        - [Remove watchlist]
+
+## tasks
+
+- [ ] Integrate the watchlist
+    - [ ] Load symbols
+    - [ ] Load data related to symbols, write `buildWatchlist()` in `Dashboard`
+- [ ] Download market data for SP500
+    - [ ] Create SP500 watchlist
+    - [ ] Load data related to symbols

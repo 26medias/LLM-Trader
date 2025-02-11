@@ -39,26 +39,32 @@ class Dashboard:
             print(f"Error writing to file {filename}: {e}")
             return False
     
-    def init(self):
+    def refreshAll(self, refreshReddit=True, refreshStocks=True, count=50):
+        print(refreshReddit, refreshStocks)
         self.data = {
             "news": None,   # dict, symbol-index
+            "news_raw": None, # array of dict
             "reddit": None, # dict, symbol-index
             "marketCycles": None,
             "symbol_table": None # df [Ticker  News  Rank  Rank Change  Mentions  Mentions Change  Upvotes]
         }
         self.refreshNews()
-        self.refreshReddit()
-        self.mergeData()
+        self.refreshReddit(refreshReddit)
+        self.mergeData(refreshStocks, count)
         
 
         #self.write(f"{self.data_dir}/data.json", self.data)
     
-    def refreshStockData(self, symbols):
+    def refreshStockData(self, symbols, refreshData=True):
+        print("refreshStockData()", refreshData)
         self.screener = Screener(self.data_dir, symbols=symbols)
-        self.screener.refreshData()
+        if refreshData:
+            self.screener.refreshData()
 
-        data = self.screener.build(timeframes=["1d", "1wk", "1mo"])
+        if "marketCycles_raw" not in self.data or refreshData:
+            self.data["marketCycles_raw"] = self.screener.build(timeframes=["1d", "1wk", "1mo"])
         
+        data = self.data["marketCycles_raw"]
         timeframes = ["", "_week", "_month"]
         timeframe_labels = ["day", "week", "month"]
         keeps = []
@@ -76,6 +82,7 @@ class Dashboard:
     # Refresh & reformat the news
     def refreshNews(self):
         newsList = self.news.load_news(days=7, limit=1000)
+        self.data["news_raw"] = newsList
         self.data["news"] = {}
         for item in newsList:
             for insight in item["insights"]:
@@ -90,8 +97,10 @@ class Dashboard:
                 })
     
     # Refresh & reformat Reddit stats
-    def refreshReddit(self):
-        # self.reddit.refresh(pages=3)
+    def refreshReddit(self, refreshData=True):
+        print("refreshReddit()", refreshData)
+        if refreshData:
+            self.reddit.refresh(pages=3)
         self.data["reddit"] = {}
         redditData = self.reddit.all(as_dict=True)
         for item in redditData:
@@ -99,7 +108,7 @@ class Dashboard:
         
     
     # Refresh the Symbol Table
-    def mergeData(self, top=20):
+    def mergeData(self, refreshData=True, top=50):
         self.data["symbol_table"] = None
         table = []
 
@@ -111,33 +120,37 @@ class Dashboard:
 
             table.append({
                 "Ticker": symbol,
-                "Rank": 0 if redditData is None else redditData["rank"],
-                "Rank Change": 0 if redditData is None else redditData["rank"] - (redditData["rank_24h_ago"] or 0),
-                "Mentions": 0 if redditData is None else redditData["mentions"],
-                "Mentions Change": 0 if redditData is None else redditData["mentions"] - (redditData["mentions_24h_ago"] or 0),
-                "Upvotes": 0 if redditData is None else redditData["upvotes"],
+                "Name": "-" if redditData is None else redditData["name"],
+                "Reddit Rank": 0 if redditData is None else redditData["rank"],
+                "Reddit Rank Change": 0 if redditData is None else redditData["rank"] - (redditData["rank_24h_ago"] or 0),
+                "Reddit Mentions": 0 if redditData is None else redditData["mentions"],
+                "Reddit Mentions Change": 0 if redditData is None else redditData["mentions"] - (redditData["mentions_24h_ago"] or 0),
+                "Reddit Upvotes": 0 if redditData is None else redditData["upvotes"],
                 "News": newsCount,
-                "News (Positive)": int(positiveNewsCount/newsCount*100),
-                "News (Negative)": int(negativeNewsCount/newsCount*100),
+                "News (Positive)": str(int(positiveNewsCount/newsCount*100))+"%",
+                "News (Negative)": str(int(negativeNewsCount/newsCount*100))+"%",
             })
         self.data["symbol_table"] = pd.DataFrame(table)
+        self.data["symbol_table"] = self.data["symbol_table"].sort_values(by=['Reddit Rank'], ascending=True)
+        self.data["symbol_table"] = self.data["symbol_table"][self.data["symbol_table"]["Reddit Rank"] > 0]
+        print(self.data["symbol_table"])
 
         # Filter the table
-        self.data["symbol_table"] = self.data["symbol_table"][(self.data["symbol_table"]["News"] > 1) & (self.data["symbol_table"]["Mentions"] > 1)]
+        #self.data["symbol_table"] = self.data["symbol_table"][(self.data["symbol_table"]["News"] > 1) & (self.data["symbol_table"]["Reddit Mentions"] > 1)]
+        #self.data["symbol_table"] = self.data["symbol_table"][self.data["symbol_table"]["Reddit Mentions"] > 1]
 
-        # TEMP DEBUG: Speed up testing
         if top is not None:
             self.data["symbol_table"] = self.data["symbol_table"].head(top)
         self.data["symbol_table"] = self.data["symbol_table"].set_index("Ticker")
         #print(self.data["symbol_table"])
 
         # Fetch the stock data for the tickers in the table
-        self.refreshStockData(list(self.data["symbol_table"].index))
+        self.refreshStockData(list(self.data["symbol_table"].index), refreshData)
         self.data["symbol_table"] = self.data["symbol_table"].join(self.data["marketCycles"], how="outer")
 
-        self.data["symbol_table"] = self.data["symbol_table"].sort_values(by=['Rank'])
-        
         print(self.data["symbol_table"])
+
+        # ADD: Day change, 3-day change, week change, month change, year high, year low
         
         """
             Ticker  News  Rank  Rank Change  Mentions  Mentions Change  Upvotes
@@ -159,4 +172,4 @@ class Dashboard:
 
 if __name__ == "__main__":
     dashboard = Dashboard()
-    dashboard.init()
+    dashboard.refreshAll()
