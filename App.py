@@ -12,6 +12,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel
 )
 
+from PyQt5.QtCore import QThread
+from refresh_worker import RefreshWorker
+
 # Import our custom table widget
 from DataFrameTableWidget import DataFrameTableWidget
 from NewsWidget import NewsWidget
@@ -123,6 +126,7 @@ class MainWindow(QMainWindow):
         #        #self.refreshAll()
 
         self.write_settings()
+        #self.refreshAll()
         self.refreshButtons()
 
     def on_bottom_tab_changed(self, index):
@@ -161,25 +165,53 @@ class MainWindow(QMainWindow):
         # self.on_top_tab_changed(top_tab_index)
         # self.on_bottom_tab_changed(bottom_tab_index)
         topTab = self.getCurrentTopTab()
-        if topTab == TAB_ALL:
-            self.dashboards[TAB_ALL] = Dashboard(self.data_dir)
-            self.refreshAll(False)
+        #if topTab == TAB_ALL:
+        #self.dashboards[topTab] = Dashboard(self.data_dir)
+        self.refreshAll()
 
         self.refreshButtons()
         print(f"UI loaded - Active Top Tab: {top_tab_name}, Active Bottom Tab: {bottom_tab_name}")
 
     def refreshAll(self, refreshReddit=False, refreshStock=False):
         currentTab = self.getCurrentTopTab()
-        #thread = threading.Thread(target=self._refreshAll, args=(refreshReddit, refreshStock, currentTab, ))
-        #thread.start()
-        self._refreshAll(refreshReddit, refreshStock, currentTab)
-
-    def _refreshAll(self, refreshReddit=False, refreshStock=False, merge_type="all"):
-        print("_refreshAll", refreshReddit, refreshStock)
-        self.dashboards[TAB_ALL].refreshAll(refreshReddit, refreshStock, 50, merge_type)
-        df = self.dashboards[TAB_ALL].data["symbol_table"].copy()
+        
+        # Ensure we have a Dashboard instance for the current tab
+        #if currentTab == TAB_ALL:
+        if self.dashboards[currentTab] is None:
+            self.dashboards[currentTab] = Dashboard(self.watchlist, self.data_dir)
+        dashboard = self.dashboards[currentTab]
+        
+        # Create a QThread and a worker object.
+        self.thread = QThread()
+        self.worker = RefreshWorker(dashboard, refreshReddit, refreshStock, currentTab)
+        
+        # Move the worker to the thread.
+        self.worker.moveToThread(self.thread)
+        
+        # Connect signals and slots.
+        self.thread.started.connect(self.worker.run)
+        self.worker.finished.connect(self.onRefreshFinished)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        
+        # Optional: handle errors
+        self.worker.error.connect(self.handleRefreshError)
+        
+        # Start the thread.
+        self.thread.start()
+    
+    def onRefreshFinished(self, df):
+        print("\n\nonRefreshFinished():\n")
+        print(df)
+        topTab = self.getCurrentTopTab()
+        # Process the DataFrame and update the GUI in the main thread.
         df["Ticker"] = df.index
-        columns = ["Ticker", "name", "rank", "rank change", "mentions", "mentions change", "upvotes", "News", "News (Positive)", "News (Negative)", "prev_day", "day", "prev_week", "week", "prev_month", "month"]
+        columns = [
+            "Ticker", "name", "rank", "rank change", "mentions", "mentions change",
+            "upvotes", "News", "News (Positive)", "News (Negative)",
+            "prev_day", "day", "prev_week", "week", "prev_month", "month"
+        ]
         gradients = {
             "rank": (-1, 0, len(df.index)/3),
             "rank change": (-100, 0, 100),
@@ -196,12 +228,26 @@ class MainWindow(QMainWindow):
             "prev_month": (0, 50, 100),
             "month": (0, 50, 100),
         }
-        self.external_screener_table.setDataFrame(
-            df=df,
-            columns=columns,
-            gradients=gradients,
-            onClick=self.on_table_row_click
-        )
+        if topTab == TAB_ALL:
+            self.external_screener_table.setDataFrame(
+                df=df,
+                columns=columns,
+                gradients=gradients,
+                onClick=self.on_table_row_click
+            )
+        if topTab == TAB_WATCHLIST:
+            self.watchlist_table.setDataFrame(
+                df=df,
+                columns=columns,
+                gradients=gradients,
+                onClick=self.on_table_row_click
+            )
+        
+        self.refreshButtons()
+
+    def handleRefreshError(self, exception):
+        print("Error during refresh:", exception)
+
 
 
     def watchlistAdd(self, ticker):

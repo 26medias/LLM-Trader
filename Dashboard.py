@@ -8,9 +8,14 @@ import math
 import json
 import os
 
+TAB_ALL = "Trending"
+TAB_MARKETCYCLES = "Market Cycles"
+TAB_WATCHLIST = "Watchlist"
+
 class Dashboard:
-    def __init__(self, data_dir="./data"):
+    def __init__(self, watchlist, data_dir="./data"):
         self.data_dir = data_dir
+        self.watchlist = watchlist
         self.reddit = RedditTracker(self.data_dir)
         self.news = NewsLoader()
         
@@ -56,8 +61,8 @@ class Dashboard:
         
         onCompleted()
     
-    def refreshAll(self, refreshReddit=True, refreshStocks=True, count=50, merge_type="Trending"):
-        print(refreshReddit, refreshStocks)
+    def refreshAll(self, refreshReddit=True, refreshStocks=True, count=50, merge_type=TAB_ALL):
+        print("refreshAll()", merge_type, refreshReddit, refreshStocks)
         self.data = {
             "news": None,   # dict, symbol-index
             "news_table": None,   # dict, symbol-index
@@ -68,19 +73,30 @@ class Dashboard:
         }
         
         self.refreshNews()
+
         self.refreshReddit(refreshReddit)
-        
-        # Filter reddit by rank
-        reddit_table = self.data["reddit_table"].sort_values(by=['rank'], ascending=True)
 
-        # Limit
-        reddit_table = reddit_table.head(count)
+        reddit_table = self.data["reddit_table"]
 
-        # Get symbols
-        symbols = list(reddit_table.index)
+        if merge_type == TAB_ALL:
+            # Filter reddit by rank
+            reddit_table = reddit_table.sort_values(by=['rank'], ascending=True)
+            
+            # Limit reddit
+            reddit_table = reddit_table.head(count)
 
-        print("\n\n=== SYMBOLS ===")
-        print(symbols)
+            # Get symbols
+            symbols = list(reddit_table.index)
+
+            #print("\n\n=== SYMBOLS ===")
+            #print(symbols)
+
+        if merge_type == TAB_WATCHLIST:
+            # Get the symbols from the watchlist
+            symbols = self.watchlist.list()
+
+            # Filter the reddit data to only those symbols
+            reddit_table = reddit_table[reddit_table.index.isin(symbols)]
 
         # Get the stock data for those
         self.refreshStockData(symbols, refreshStocks, merge_type)
@@ -89,8 +105,13 @@ class Dashboard:
         table = self.data["reddit_table"].merge(self.data["news_table"], on="ticker", how="outer").merge(self.data["marketCycles"], on="ticker", how="outer")
         
 
-        # Filter out what we don't need
-        table = table[(table["rank"] > 0)] # | (table["News"] > 0)
+        if merge_type == TAB_ALL:
+            # Filter out what we don't need
+            table = table[(table["rank"] > 0)] # | (table["News"] > 0)
+        
+        if merge_type == TAB_WATCHLIST:
+            table = table[table.index.isin(symbols)]
+        
 
         table = table.sort_values(by=['rank'], ascending=True)
 
@@ -106,13 +127,13 @@ class Dashboard:
 
     # Refresh the stock data for given symbols
     def refreshStockData(self, symbols, refreshData=True, cache_name=""):
-        print("refreshStockData()", symbols, refreshData)
+        #print("refreshStockData()", symbols, refreshData)
         timeframes = ["1d", "1wk", "1mo"]
 
         cache_filename = f"{self.data_dir}/marketcycles_{cache_name}.csv"
         if not os.path.exists(cache_filename) or refreshData:
             # Refresh the data
-            print("-- Refreshing the stock data --")
+            #print("-- Refreshing the stock data --")
             self.screener = Screener(self.data_dir, symbols=symbols)
             self.screener.refreshData(timeframes=timeframes)
             raw_data = self.screener.build(timeframes=timeframes)
@@ -141,8 +162,8 @@ class Dashboard:
         # Set the index again
         self.data["marketCycles"] = self.data["marketCycles"].set_index("ticker")
         
-        print("\n\n=== STOCKS ===")
-        print(self.data["marketCycles"])
+        #print("\n\n=== STOCKS ===")
+        #print(self.data["marketCycles"])
 
 
     # Refresh & reformat the news
@@ -181,13 +202,13 @@ class Dashboard:
         self.data["news_table"] = self.data["news_table"].set_index("ticker")
         self.data["news_table"] = self.data["news_table"].drop(columns=["Ticker"])
         
-        print("\n\n=== NEWS ===")
-        print(self.data["news_table"])
+        #print("\n\n=== NEWS ===")
+        #print(self.data["news_table"])
     
 
     # Refresh Reddit stats, save the table
     def refreshReddit(self, refreshData=True):
-        print("refreshReddit()", refreshData)
+        #print("refreshReddit()", refreshData)
         if refreshData:
             self.reddit.refresh(pages=10)
         self.data["reddit_table"] = self.reddit.all(as_dict=False)
@@ -199,14 +220,14 @@ class Dashboard:
         self.data["reddit_table"]["mentions change"] = self.data["reddit_table"]["mentions"] - self.data["reddit_table"]["mentions_24h_ago"]
         
         self.data["reddit_table"] = self.data["reddit_table"].drop(columns=["Ticker"])
-        
-        print("\n\n=== REDDIT ===")
-        print(self.data["reddit_table"])
+
+        #print("\n\n=== REDDIT ===")
+        #print(self.data["reddit_table"])
 
     
     # Refresh the Symbol Table
     def mergeData(self, refreshData=True, top=50, merge_type="Trending"):
-        print("mergeData()", refreshData, merge_type)
+        #print("mergeData()", refreshData, merge_type)
         self.data["symbol_table"] = None
         table = []
 
